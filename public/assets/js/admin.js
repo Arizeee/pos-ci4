@@ -341,7 +341,7 @@ function editProduct(productId) {
 
 // Delete Product
 function deleteProduct(productId) {
-    const product = products.find(p => p.id === productId);
+    const product = products.find(p => Number(p.id) === Number(productId));
 
     deletingProductId = productId;
     document.getElementById('deleteProductName').textContent = product ? product.name : 'produk ini';

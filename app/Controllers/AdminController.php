@@ -13,6 +13,32 @@ use Config\Database;
 
 class AdminController extends BaseController
 {
+    private function input(?string $key = null, $default = null)
+    {
+        $json = $this->request->getJSON(true);
+        $data = is_array($json) && !empty($json)
+            ? $json
+            : ($this->request->getPost() ?: []);
+
+        if ($key === null) return $data;
+        return $data[$key] ?? $default;
+    }
+
+    private function validateInput(array $rules): bool
+    {
+        $data       = $this->input();
+        $validation = \Config\Services::validation();
+        $validation->setRules($rules);
+
+        if (!$validation->run($data)) {
+            $this->validationErrors = $validation->getErrors();
+            return false;
+        }
+        return true;
+    }
+
+    private array $validationErrors = [];
+
     public function index()
     {
         return view('dashboard/admin/index');
@@ -34,7 +60,6 @@ class AdminController extends BaseController
             ->join('categories', 'categories.id = products.category_id')
             ->orderBy('products.id', 'DESC');
 
-        // $total = $db->table('products')->countAllResults();
         $total = (clone $builder)->countAllResults(false);
         $data  = (clone $builder)->limit($perPage, $offset)->get()->getResultArray();
 
@@ -43,34 +68,33 @@ class AdminController extends BaseController
 
     public function product_add()
     {
-        if (!$this->validate([
+        if (!$this->validateInput([
             'name'        => 'required|max_length[255]',
-            'category_id' => 'required|integer|is_not_unique[categories,id]',
+            'category_id' => 'required|integer|is_not_unique[categories.id]',
             'price'       => 'required|decimal|greater_than_equal_to[0]',
             'stock'       => 'required|integer|greater_than_equal_to[0]',
             'status'      => 'required|in_list[1,0]',
         ])) {
             return $this->response->setJSON([
                 'status'  => false,
-                'message' => $this->validator->getErrors(),
+                'message' => $this->validationErrors,
             ])->setStatusCode(422);
         }
 
         $db = Database::connect();
-
         $db->transStart();
 
         $productModel = new Product();
         $productModel->insert([
-            'name'        => $this->request->getPost('name'),
-            'category_id' => $this->request->getPost('category_id'),
-            'price'       => $this->request->getPost('price'),
-            'stock'       => $this->request->getPost('stock'),
-            'status'      => $this->request->getPost('status'),
+            'name'        => $this->input('name'),
+            'category_id' => $this->input('category_id'),
+            'price'       => $this->input('price'),
+            'stock'       => $this->input('stock'),
+            'status'      => $this->input('status'),
         ]);
 
-        $productId = $db->insertID();
-        $stock     = (int) $this->request->getPost('stock');
+        $productId = $productModel->getInsertID();
+        $stock     = (int) $this->input('stock');
 
         $this->createStockLog($productId, 'in', $stock, 0, $stock, 'Stok awal produk');
 
@@ -98,36 +122,37 @@ class AdminController extends BaseController
             ])->setStatusCode(404);
         }
 
-        if (!$this->validate([
+        // Bug #1 Fix: is_not_unique[categories.id]
+        // Bug #3 & #4 Fix: pakai validateInput()
+        if (!$this->validateInput([
             'name'        => 'required|max_length[255]',
-            'category_id' => 'required|integer|is_not_unique[categories,id]',
+            'category_id' => 'required|integer|is_not_unique[categories.id]',
             'price'       => 'required|decimal|greater_than_equal_to[0]',
             'stock'       => 'required|integer|greater_than_equal_to[0]',
             'status'      => 'required|in_list[1,0]',
         ])) {
             return $this->response->setJSON([
                 'status'  => false,
-                'message' => $this->validator->getErrors(),
+                'message' => $this->validationErrors,
             ])->setStatusCode(422);
         }
 
         $db->transStart();
 
         $beforeStock = (int) $product['stock'];
-        $afterStock  = (int) $this->request->getPost('stock');
+        $afterStock  = (int) $this->input('stock');
 
         $productModel->update($id, [
-            'name'        => $this->request->getPost('name'),
-            'category_id' => $this->request->getPost('category_id'),
-            'price'       => $this->request->getPost('price'),
+            'name'        => $this->input('name'),
+            'category_id' => $this->input('category_id'),
+            'price'       => $this->input('price'),
             'stock'       => $afterStock,
-            'status'      => $this->request->getPost('status'),
+            'status'      => $this->input('status'),
         ]);
 
         if ($beforeStock !== $afterStock) {
             $difference = $afterStock - $beforeStock;
             $type       = $difference > 0 ? 'in' : 'out';
-
             $this->createStockLog($id, $type, abs($difference), $beforeStock, $afterStock, 'Perubahan stok dari edit produk');
         }
 
@@ -141,35 +166,47 @@ class AdminController extends BaseController
     }
 
     public function product_delete(int $id)
-    {
-        $db           = Database::connect();
-        $productModel = new Product();
-        $product      = $productModel->find($id);
+{
+    $db           = Database::connect();
+    $productModel = new Product();
+    $product      = $productModel->find($id);
 
-        if (!$product) {
-            return $this->response->setJSON([
-                'status'  => false,
-                'message' => 'Produk tidak ditemukan',
-            ])->setStatusCode(404);
-        }
-
-        $db->transStart();
-
-        $stock = (int) $product['stock'];
-
-        if ($stock > 0) {
-            $this->createStockLog($id, 'out', $stock, $stock, 0, 'Produk dihapus');
-        }
-
-        $productModel->delete($id);
-
-        $db->transComplete();
-
+    if (!$product) {
         return $this->response->setJSON([
-            'status'  => true,
-            'message' => 'Produk berhasil dihapus',
-        ]);
+            'status'  => false,
+            'message' => 'Produk tidak ditemukan',
+        ])->setStatusCode(404);
     }
+
+    $db->transStart();
+
+    $stock = (int) $product['stock'];
+    if ($stock > 0) {
+        $this->createStockLog($id, 'out', $stock, $stock, 0, 'Produk dihapus');
+    }
+
+    $db->table('stock_logs')->where('product_id', $id)->delete();
+
+    $db->table('order_items')->where('product_id', $id)->update(['product_id' => null]);
+
+    $db->table('transaction_details')->where('product_id', $id)->update(['product_id' => null]);
+
+    $productModel->delete($id);
+
+    $db->transComplete();
+
+    if (!$db->transStatus()) {
+        return $this->response->setJSON([
+            'status'  => false,
+            'message' => 'Gagal menghapus produk',
+        ])->setStatusCode(500);
+    }
+
+    return $this->response->setJSON([
+        'status'  => true,
+        'message' => 'Produk berhasil dihapus',
+    ]);
+}
 
     // -------------------------------------------------------
     // STOCK LOGS
@@ -209,12 +246,10 @@ class AdminController extends BaseController
 
         $builder = $db->table('orders')->orderBy('id', 'DESC');
 
-        // Pengganti $request->filled('status')
         if (!empty($status) && $status !== 'all') {
             $builder->where('status', $status);
         }
 
-        // Pengganti match($request->period) + Carbon now()->...
         if (!empty($period) && $period !== 'all') {
             match ($period) {
                 'today' => $builder->where('DATE(created_at)', date('Y-m-d')),
@@ -229,7 +264,6 @@ class AdminController extends BaseController
         $total  = (clone $builder)->countAllResults(false);
         $orders = (clone $builder)->limit($perPage, $offset)->get()->getResultArray();
 
-        // Pengganti Order::with('items') — eager load manual
         $orderModel = new Order();
         foreach ($orders as &$order) {
             $order['items'] = $orderModel->getItems($order['id']);
@@ -251,7 +285,6 @@ class AdminController extends BaseController
         $offset  = ($page - 1) * $perPage;
         $date    = $this->request->getGet('date');
 
-        // Pengganti Schema::hasColumn()
         $hasOrderId         = $db->fieldExists('order_id',         'transactions');
         $hasInvoiceCode     = $db->fieldExists('invoice_code',      'transactions');
         $hasPaymentMethodId = $db->fieldExists('payment_method_id', 'transactions');
@@ -281,7 +314,6 @@ class AdminController extends BaseController
             $builder->select('COALESCE(SUM(transaction_details.qty), 0) as detail_item_count', false)
                     ->join('transaction_details', 'transaction_details.transaction_id = transactions.id', 'left');
 
-            // Pengganti groupBy() dengan spread operator Laravel
             $groupFields = ['transactions.id', 'transactions.total'];
             if ($hasInvoiceCode)     $groupFields[] = 'transactions.invoice_code';
             if ($hasOrderId)         array_push($groupFields, 'transactions.order_id', 'orders.code', 'orders.item_count');
@@ -300,7 +332,6 @@ class AdminController extends BaseController
         $total = (clone $builder)->countAllResults(false);
         $rows  = (clone $builder)->orderBy('transactions.id', 'DESC')->limit($perPage, $offset)->get()->getResultArray();
 
-        // Pengganti collect($paginator->items())->map(function(...){})
         $transactions = array_map(function ($trx) use ($hasPaymentMethodId, $hasPayment, $hasChangeAmount, $hasCreatedAt, $hasOrderId) {
             $paymentMethodName = $hasPaymentMethodId ? ($trx['payment_method_name'] ?? null) : null;
 
@@ -332,15 +363,12 @@ class AdminController extends BaseController
         $startOfMonth = date('Y-m-01 00:00:00');
         $endOfMonth   = date('Y-m-t 23:59:59');
 
-        // Pengganti DB::table('transactions')->select()->get() + Carbon
         $monthlyTransactions = $db->table('transactions')
             ->select('total, created_at as transaction_date')
             ->where('created_at >=', $startOfMonth)
             ->where('created_at <=', $endOfMonth)
             ->get()->getResultArray();
 
-        // Pengganti collect(range(1,4))->map() + $monthlyTransactions->filter()->sum()
-        // Carbon::parse()->day diganti date('j', strtotime())
         $daysInMonth = (int) date('t');
         $weeklySales = [];
 
@@ -360,7 +388,6 @@ class AdminController extends BaseController
             $weeklySales[] = ['label' => 'Minggu ' . $week, 'total' => $total];
         }
 
-        // Pengganti Category::select()->leftJoin()->where(closure)->groupBy()->get()
         $categorySales = $db->table('categories')
             ->select('categories.name, COALESCE(SUM(order_items.subtotal), 0) as total', false)
             ->join('products',    'products.category_id = categories.id',  'left')
@@ -516,15 +543,15 @@ class AdminController extends BaseController
 
     public function payment_add()
     {
-        if (!$this->validate(['name' => 'required|max_length[50]'])) {
+        if (!$this->validateInput(['name' => 'required|max_length[50]'])) {
             return $this->response->setJSON([
                 'status'  => false,
-                'message' => $this->validator->getErrors(),
+                'message' => $this->validationErrors,
             ])->setStatusCode(422);
         }
 
         $db   = Database::connect();
-        $name = $this->request->getPost('name');
+        $name = $this->input('name');
         $db->table('payments')->insert(['name' => $name]);
         $id = $db->insertID();
 
@@ -547,14 +574,15 @@ class AdminController extends BaseController
             ])->setStatusCode(404);
         }
 
-        if (!$this->validate(['name' => 'required|max_length[50]'])) {
+        // Bug #3 & #4 Fix: pakai validateInput()
+        if (!$this->validateInput(['name' => 'required|max_length[50]'])) {
             return $this->response->setJSON([
                 'status'  => false,
-                'message' => $this->validator->getErrors(),
+                'message' => $this->validationErrors,
             ])->setStatusCode(422);
         }
 
-        $db->table('payments')->where('id', $id)->update(['name' => $this->request->getPost('name')]);
+        $db->table('payments')->where('id', $id)->update(['name' => $this->input('name')]);
 
         return $this->response->setJSON([
             'status'  => true,
@@ -601,7 +629,6 @@ class AdminController extends BaseController
     {
         $db = Database::connect();
 
-        // Pengganti orderByRaw("FIELD(name, 'owner', 'admin', 'kasir')")
         $data = $db->table('roles')
             ->select('id, name')
             ->whereIn('name', ['owner', 'admin', 'kasir'])
@@ -635,27 +662,27 @@ class AdminController extends BaseController
 
     public function account_add()
     {
-        if (!$this->validate([
+        // Bug #1 Fix: is_not_unique[roles.id] — titik, bukan koma
+        // Bug #3 & #4 Fix: pakai validateInput() yang baca JSON body
+        if (!$this->validateInput([
             'name'       => 'required|max_length[255]',
             'username'   => 'required|max_length[255]|alpha_dash|is_unique[users.username]',
             'email'      => 'required|valid_email|max_length[255]|is_unique[users.email]',
             'password'   => 'required|min_length[6]',
-            'role_id'    => 'required|integer|is_not_unique[roles,id]',
+            'role_id'    => 'required|integer|is_not_unique[roles.id]',
             'work_hours' => 'permit_empty|integer|greater_than_equal_to[0]|less_than_equal_to[10000]',
             'status'     => 'permit_empty|in_list[online,offline]',
         ])) {
             return $this->response->setJSON([
                 'status'  => false,
-                'message' => $this->validator->getErrors(),
+                'message' => $this->validationErrors,
             ])->setStatusCode(422);
         }
 
-        // Pengganti Rule::exists('roles', 'id')->whereIn('name', [...])
-        // CI4 tidak support kondisi tambahan pada is_not_unique — validasi manual
         $db    = Database::connect();
         $valid = $db->table('roles')
             ->whereIn('name', ['owner', 'admin', 'kasir'])
-            ->where('id', (int) $this->request->getPost('role_id'))
+            ->where('id', (int) $this->input('role_id', 0))
             ->countAllResults() > 0;
 
         if (!$valid) {
@@ -667,16 +694,18 @@ class AdminController extends BaseController
 
         $userModel = new User();
         $userModel->insert([
-            'name'       => $this->request->getPost('name'),
-            'username'   => $this->request->getPost('username'),
-            'email'      => $this->request->getPost('email'),
-            'password'   => $this->request->getPost('password'), // di-hash otomatis oleh beforeInsert
-            'role_id'    => (int) $this->request->getPost('role_id'),
-            'work_hours' => (int) ($this->request->getPost('work_hours') ?? 0),
-            'status'     => $this->request->getPost('status') ?? 'offline',
+            'name'       => $this->input('name'),
+            'username'   => $this->input('username'),
+            'email'      => $this->input('email'),
+            'password'   => $this->input('password'),
+            'role_id'    => (int) $this->input('role_id'),
+            'work_hours' => (int) $this->input('work_hours', 0),
+            'status'     => $this->input('status', 'offline'),
         ]);
 
-        $account = $userModel->find($db->insertID());
+        // Bug #2 Fix: pakai getInsertID() dari model, bukan $db->insertID()
+        $newId   = $userModel->getInsertID();
+        $account = $userModel->find($newId);
 
         return $this->response->setJSON([
             'status'  => true,
@@ -697,36 +726,35 @@ class AdminController extends BaseController
             ])->setStatusCode(404);
         }
 
-        // Pengganti Rule::unique()->ignore($user->id)
-        // CI4: is_unique[tabel.kolom,kolom_pengecualian,nilai_pengecualian]
-        if (!$this->validate([
+        // Bug #1 Fix: is_not_unique[roles.id]
+        // Bug #3 & #4 Fix: pakai validateInput()
+        if (!$this->validateInput([
             'name'       => 'required|max_length[255]',
             'username'   => "required|max_length[255]|alpha_dash|is_unique[users.username,id,{$id}]",
             'email'      => "required|valid_email|max_length[255]|is_unique[users.email,id,{$id}]",
             'password'   => 'permit_empty|min_length[6]',
-            'role_id'    => 'required|integer|is_not_unique[roles,id]',
+            'role_id'    => 'required|integer|is_not_unique[roles.id]',
             'work_hours' => 'permit_empty|integer|greater_than_equal_to[0]|less_than_equal_to[10000]',
             'status'     => 'permit_empty|in_list[online,offline]',
         ])) {
             return $this->response->setJSON([
                 'status'  => false,
-                'message' => $this->validator->getErrors(),
+                'message' => $this->validationErrors,
             ])->setStatusCode(422);
         }
 
         $data = [
-            'name'       => $this->request->getPost('name'),
-            'username'   => $this->request->getPost('username'),
-            'email'      => $this->request->getPost('email'),
-            'role_id'    => (int) $this->request->getPost('role_id'),
-            'work_hours' => (int) ($this->request->getPost('work_hours') ?? 0),
-            'status'     => $this->request->getPost('status') ?? 'offline',
+            'name'       => $this->input('name'),
+            'username'   => $this->input('username'),
+            'email'      => $this->input('email'),
+            'role_id'    => (int) $this->input('role_id'),
+            'work_hours' => (int) $this->input('work_hours', 0),
+            'status'     => $this->input('status', 'offline'),
         ];
 
         // Password hanya diupdate jika diisi
-        // hashPassword di UserModel otomatis berjalan jika key 'password' ada
-        if ($this->request->getPost('password')) {
-            $data['password'] = $this->request->getPost('password');
+        if ($this->input('password')) {
+            $data['password'] = $this->input('password');
         }
 
         $userModel->update($id, $data);
@@ -750,7 +778,6 @@ class AdminController extends BaseController
             ])->setStatusCode(404);
         }
 
-        // Pengganti auth()->id()
         if ((int) session()->get('user_id') === $id) {
             return $this->response->setJSON([
                 'status'  => false,
@@ -770,7 +797,6 @@ class AdminController extends BaseController
     // Private Helpers
     // -------------------------------------------------------
 
-    // Pengganti createStockLog(Product $product, ...) — Route model binding tidak ada di CI4
     private function createStockLog(int $productId, string $type, int $quantity, int $beforeStock, int $afterStock, string $note): void
     {
         $stockLogModel = new StockLog();
@@ -785,13 +811,11 @@ class AdminController extends BaseController
         ]);
     }
 
-    // Pengganti perPage(Request $request) — CI4 pakai $this->request
     private function perPage(): int
     {
         return max(1, min((int) ($this->request->getGet('per_page') ?? 10), 10));
     }
 
-    // Pengganti paginatedResponse($paginator, $items) — Laravel Paginator diganti manual
     private function paginatedResponse(array $data, int $total, int $page, int $perPage)
     {
         $lastPage = (int) ceil($total / $perPage);

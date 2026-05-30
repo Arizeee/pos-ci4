@@ -180,28 +180,34 @@
     }
 
     function openProductModal(productId = null) {
-        editingProductId = productId;
-        const modalTitle = document.getElementById('productModalTitle');
+    editingProductId = productId;
+    const modalTitle = document.getElementById('productModalTitle');
 
-        if (productId) {
-            const product = products.find(p => p.id === productId);
-            modalTitle.textContent = 'Edit Produk';
-            document.getElementById('productName').value = product.name;
-            document.getElementById('productCategory').value = product.category_id;
-            document.getElementById('productPrice').value = product.price;
-            document.getElementById('productStock').value = product.stock;
-            document.getElementById('productStatus').value = String(product.status);
-        } else {
-            modalTitle.textContent = 'Tambah Produk';
-            document.getElementById('productName').value = '';
-            document.getElementById('productCategory').selectedIndex = 0;
-            document.getElementById('productPrice').value = '';
-            document.getElementById('productStock').value = '';
-            document.getElementById('productStatus').value = '1';
+    if (productId) {
+        const product = products.find(p => Number(p.id) === Number(productId));
+
+        if (!product) {
+            alert('Data produk tidak ditemukan. Silakan refresh halaman.');
+            return;
         }
 
-        document.getElementById('productModal').classList.remove('hidden');
+        modalTitle.textContent = 'Edit Produk';
+        document.getElementById('productName').value     = product.name        ?? '';
+        document.getElementById('productCategory').value = product.category_id;
+        document.getElementById('productPrice').value    = product.price       ?? '';
+        document.getElementById('productStock').value    = product.stock       ?? '';
+        document.getElementById('productStatus').value   = String(product.status);
+    } else {
+        modalTitle.textContent = 'Tambah Produk';
+        document.getElementById('productName').value     = '';
+        document.getElementById('productCategory').selectedIndex = 0;
+        document.getElementById('productPrice').value    = '';
+        document.getElementById('productStock').value    = '';
+        document.getElementById('productStatus').value   = '1';
     }
+
+    document.getElementById('productModal').classList.remove('hidden');
+}
 
     async function saveProduct() {
         const name = document.getElementById('productName').value;

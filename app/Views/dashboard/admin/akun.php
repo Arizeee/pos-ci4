@@ -262,42 +262,56 @@
             tableBody.innerHTML = '<tr><td colspan="8" class="py-4 text-center text-red-600">Gagal memuat akun.</td></tr>';
         }
     }
+    
 
-    function openAccountModal(accountId = null) {
-        editingAccountId = accountId;
+    async function openAccountModal(accountId = null) {
+    editingAccountId = accountId;
 
-        const modalTitle = document.getElementById('accountModalTitle');
-        const passwordInput = document.getElementById('accountPassword');
-        const passwordHelp = document.getElementById('accountPasswordHelp');
+    const modalTitle  = document.getElementById('accountModalTitle');
+    const passwordInput = document.getElementById('accountPassword');
+    const passwordHelp  = document.getElementById('accountPasswordHelp');
 
-        if (accountId) {
-            const account = accounts.find(item => item.id === accountId);
+    if (accountId) {
+        // Cari di array lokal dulu, fallback ke fetch ulang seluruh halaman
+        let account = accounts.find(item => Number(item.id) === Number(accountId));
 
-            modalTitle.textContent = 'Edit Akun';
-            document.getElementById('accountName').value = account.name;
-            document.getElementById('accountUsername').value = account.username || '';
-            document.getElementById('accountEmail').value = account.email;
-            document.getElementById('accountRole').value = account.role_id;
-            document.getElementById('accountWorkHours').value = account.work_hours || 0;
-            document.getElementById('accountStatus').value = account.status || 'offline';
-            passwordInput.value = '';
-            passwordInput.placeholder = 'Kosongkan jika tidak diubah';
-            passwordHelp.classList.remove('hidden');
-        } else {
-            modalTitle.textContent = 'Tambah Akun';
-            document.getElementById('accountName').value = '';
-            document.getElementById('accountUsername').value = '';
-            document.getElementById('accountEmail').value = '';
-            document.getElementById('accountRole').selectedIndex = 0;
-            document.getElementById('accountWorkHours').value = 0;
-            document.getElementById('accountStatus').value = 'offline';
-            passwordInput.value = '';
-            passwordInput.placeholder = 'Masukkan password';
-            passwordHelp.classList.add('hidden');
+        // Kalau tidak ketemu (misal pindah halaman), fetch ulang dulu
+        if (!account) {
+            await renderAccounts(currentAccountsPage);
+            account = accounts.find(item => Number(item.id) === Number(accountId));
         }
 
-        document.getElementById('accountModal').classList.remove('hidden');
+        // Kalau masih tidak ketemu, stop
+        if (!account) {
+            alert('Data akun tidak ditemukan. Silakan refresh halaman.');
+            return;
+        }
+
+        modalTitle.textContent = 'Edit Akun';
+        document.getElementById('accountName').value      = account.name      ?? '';
+        document.getElementById('accountUsername').value  = account.username  ?? '';
+        document.getElementById('accountEmail').value     = account.email     ?? '';
+        document.getElementById('accountRole').value      = account.role_id;
+        document.getElementById('accountWorkHours').value = account.work_hours ?? 0;
+        document.getElementById('accountStatus').value    = account.status    ?? 'offline';
+        passwordInput.value       = '';
+        passwordInput.placeholder = 'Kosongkan jika tidak diubah';
+        passwordHelp.classList.remove('hidden');
+    } else {
+        modalTitle.textContent = 'Tambah Akun';
+        document.getElementById('accountName').value      = '';
+        document.getElementById('accountUsername').value  = '';
+        document.getElementById('accountEmail').value     = '';
+        document.getElementById('accountRole').selectedIndex = 0;
+        document.getElementById('accountWorkHours').value = 0;
+        document.getElementById('accountStatus').value    = 'offline';
+        passwordInput.value       = '';
+        passwordInput.placeholder = 'Masukkan password';
+        passwordHelp.classList.add('hidden');
     }
+
+    document.getElementById('accountModal').classList.remove('hidden');
+}
 
     function closeAccountModal() {
         document.getElementById('accountModal').classList.add('hidden');

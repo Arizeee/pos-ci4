@@ -22,7 +22,8 @@ class Product extends Model
     // Tabel products hanya punya created_at, tidak ada updated_at
     protected $useTimestamps = true;
     protected $createdField  = 'created_at';
-    protected $updatedField  = false;
+    // protected $updatedField  = false;
+    protected $updatedField = '';
  
     // -------------------------------------------------------
     // Pengganti belongsTo(Category::class)
