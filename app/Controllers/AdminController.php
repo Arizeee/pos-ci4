@@ -166,47 +166,47 @@ class AdminController extends BaseController
     }
 
     public function product_delete(int $id)
-{
-    $db           = Database::connect();
-    $productModel = new Product();
-    $product      = $productModel->find($id);
+    {
+        $db           = Database::connect();
+        $productModel = new Product();
+        $product      = $productModel->find($id);
 
-    if (!$product) {
+        if (!$product) {
+            return $this->response->setJSON([
+                'status'  => false,
+                'message' => 'Produk tidak ditemukan',
+            ])->setStatusCode(404);
+        }
+
+        $db->transStart();
+
+        $stock = (int) $product['stock'];
+        if ($stock > 0) {
+            $this->createStockLog($id, 'out', $stock, $stock, 0, 'Produk dihapus');
+        }
+
+        $db->table('stock_logs')->where('product_id', $id)->delete();
+
+        $db->table('order_items')->where('product_id', $id)->update(['product_id' => null]);
+
+        $db->table('transaction_details')->where('product_id', $id)->update(['product_id' => null]);
+
+        $productModel->delete($id);
+
+        $db->transComplete();
+
+        if (!$db->transStatus()) {
+            return $this->response->setJSON([
+                'status'  => false,
+                'message' => 'Gagal menghapus produk',
+            ])->setStatusCode(500);
+        }
+
         return $this->response->setJSON([
-            'status'  => false,
-            'message' => 'Produk tidak ditemukan',
-        ])->setStatusCode(404);
+            'status'  => true,
+            'message' => 'Produk berhasil dihapus',
+        ]);
     }
-
-    $db->transStart();
-
-    $stock = (int) $product['stock'];
-    if ($stock > 0) {
-        $this->createStockLog($id, 'out', $stock, $stock, 0, 'Produk dihapus');
-    }
-
-    $db->table('stock_logs')->where('product_id', $id)->delete();
-
-    $db->table('order_items')->where('product_id', $id)->update(['product_id' => null]);
-
-    $db->table('transaction_details')->where('product_id', $id)->update(['product_id' => null]);
-
-    $productModel->delete($id);
-
-    $db->transComplete();
-
-    if (!$db->transStatus()) {
-        return $this->response->setJSON([
-            'status'  => false,
-            'message' => 'Gagal menghapus produk',
-        ])->setStatusCode(500);
-    }
-
-    return $this->response->setJSON([
-        'status'  => true,
-        'message' => 'Produk berhasil dihapus',
-    ]);
-}
 
     // -------------------------------------------------------
     // STOCK LOGS
@@ -693,7 +693,12 @@ class AdminController extends BaseController
         }
 
         $userModel = new User();
-        $userModel->insert([
+
+        // FIX: skip validasi internal model (sudah divalidasi manual di atas)
+        // dan CEK return value insert(), karena kalau validasi model gagal
+        // insert() akan return false TANPA exception — sebelumnya ini
+        // ketelan diam-diam dan response tetap bilang "berhasil".
+        $inserted = $userModel->skipValidation(true)->insert([
             'name'       => $this->input('name'),
             'username'   => $this->input('username'),
             'email'      => $this->input('email'),
@@ -702,6 +707,13 @@ class AdminController extends BaseController
             'work_hours' => (int) $this->input('work_hours', 0),
             'status'     => $this->input('status', 'offline'),
         ]);
+
+        if ($inserted === false) {
+            return $this->response->setJSON([
+                'status'  => false,
+                'message' => $userModel->errors() ?: 'Gagal menambahkan akun',
+            ])->setStatusCode(500);
+        }
 
         // Bug #2 Fix: pakai getInsertID() dari model, bukan $db->insertID()
         $newId   = $userModel->getInsertID();
@@ -757,7 +769,25 @@ class AdminController extends BaseController
             $data['password'] = $this->input('password');
         }
 
-        $userModel->update($id, $data);
+        // FIX (root cause "edit akun gabisa"):
+        // Model User punya $validationRules sendiri dengan
+        // 'password' => 'required|min_length[6]'. Itu otomatis jalan lagi
+        // tiap kali update() dipanggil. Pas edit akun TANPA ganti password,
+        // key 'password' gak ada di $data -> validasi model gagal ->
+        // update() return false -> data DI DB GAK BERUBAH, padahal sebelumnya
+        // return value ini gak dicek sehingga controller tetap balas sukses.
+        //
+        // skipValidation(true) karena validasi sudah lengkap dilakukan
+        // manual di atas (termasuk is_unique exclude id yang benar untuk
+        // mode edit), lalu return value DICEK supaya error gak ketelan diam-diam.
+        $updated = $userModel->skipValidation(true)->update($id, $data);
+
+        if ($updated === false) {
+            return $this->response->setJSON([
+                'status'  => false,
+                'message' => $userModel->errors() ?: 'Gagal memperbarui akun',
+            ])->setStatusCode(500);
+        }
 
         return $this->response->setJSON([
             'status'  => true,

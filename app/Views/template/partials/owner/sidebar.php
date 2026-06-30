@@ -111,9 +111,12 @@
                     <p class="text-stone-400 text-sm">Owner</p>
                 </div>
                 <button class="text-stone-400 hover:text-white transition-colors">
-                    <a href="<?= base_url('logout') ?>" 
+                    <!-- <a href="<?= base_url('logout') ?>" 
                     class="text-stone-400 hover:text-red-400 transition-colors"
                     onclick="return confirm('Yakin ingin logout?')">
+                        <span class="text-xl">🚪</span>
+                    </a> -->
+                    <a href="<?= base_url('logout') ?>" onclick="if(confirm('Yakin ingin logout?')) handleLogout(event); else event.preventDefault();">
                         <span class="text-xl">🚪</span>
                     </a>
                 </button>

@@ -170,6 +170,16 @@
             return Object.values(result.errors).flat()[0] || fallback;
         }
 
+        // FIX: backend (AdminController::validateInput) ngirim error
+        // validasi lewat key 'message' berupa OBJECT { field: 'pesan' },
+        // bukan string biasa. Sebelumnya kode ini lompat langsung ke
+        // `return result.message || fallback`, jadi alert() nge-toString()-kan
+        // object itu jadi "[object Object]" dan pesan error aslinya hilang.
+        // Sekarang dibongkar dulu kalau message-nya ternyata object.
+        if (result.message && typeof result.message === 'object') {
+            return Object.values(result.message).flat()[0] || fallback;
+        }
+
         return result.message || fallback;
     }
 
@@ -262,7 +272,7 @@
             tableBody.innerHTML = '<tr><td colspan="8" class="py-4 text-center text-red-600">Gagal memuat akun.</td></tr>';
         }
     }
-    
+
 
     async function openAccountModal(accountId = null) {
     editingAccountId = accountId;

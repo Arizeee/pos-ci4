@@ -77,31 +77,37 @@ function statusBadge(status) {
 }
 
 async function renderDashboard() {
-    const response = await fetch('/admin-dashboard-data');
-    const result = await response.json();
+    try {
+        const response = await fetch('/admin-dashboard-data');
+        const result = await response.json();
 
-    if (!response.ok) {
-        console.error(result);
-        return;
+        if (!response.ok) {
+            console.error(result);
+            showToast(result.message || 'Gagal memuat dashboard', 'error');
+            return;
+        }
+
+        const data = result.data;
+        const summary = data.summary;
+
+        document.getElementById('dashboardTotalProducts').textContent = summary.total_products;
+        document.getElementById('dashboardActiveProducts').textContent = summary.active_products;
+        document.getElementById('dashboardInactiveProducts').textContent = summary.inactive_products;
+        document.getElementById('dashboardTotalStock').textContent = summary.total_stock;
+        document.getElementById('dashboardLowStockProducts').textContent = `${summary.low_stock_products} stok rendah`;
+        document.getElementById('dashboardStockInToday').textContent = summary.stock_in_today;
+        document.getElementById('dashboardStockOutToday').textContent = summary.stock_out_today;
+        document.getElementById('dashboardStockActivitiesToday').textContent = summary.stock_activities_today;
+
+        renderDashboardCategoryChart(data.category_stats);
+        renderDashboardTopProducts(data.top_stock_products);
+        renderDashboardLatestProducts(data.latest_products);
+        renderDashboardLowStockItems(data.low_stock_items);
+        renderDashboardRecentStockLogs(data.recent_stock_logs);
+    } catch (error) {
+        console.error(error);
+        showToast('Dashboard gagal dimuat, periksa koneksi', 'error');
     }
-
-    const data = result.data;
-    const summary = data.summary;
-
-    document.getElementById('dashboardTotalProducts').textContent = summary.total_products;
-    document.getElementById('dashboardActiveProducts').textContent = summary.active_products;
-    document.getElementById('dashboardInactiveProducts').textContent = summary.inactive_products;
-    document.getElementById('dashboardTotalStock').textContent = summary.total_stock;
-    document.getElementById('dashboardLowStockProducts').textContent = `${summary.low_stock_products} stok rendah`;
-    document.getElementById('dashboardStockInToday').textContent = summary.stock_in_today;
-    document.getElementById('dashboardStockOutToday').textContent = summary.stock_out_today;
-    document.getElementById('dashboardStockActivitiesToday').textContent = summary.stock_activities_today;
-
-    renderDashboardCategoryChart(data.category_stats);
-    renderDashboardTopProducts(data.top_stock_products);
-    renderDashboardLatestProducts(data.latest_products);
-    renderDashboardLowStockItems(data.low_stock_items);
-    renderDashboardRecentStockLogs(data.recent_stock_logs);
 }
 
 function renderDashboardCategoryChart(categoryStats) {
@@ -358,30 +364,36 @@ async function confirmDeleteProduct() {
         return;
     }
 
-    const response = await fetch(`/admin-product/${deletingProductId}`, {
-        method: 'DELETE',
-        headers: {
-            'Accept': 'application/json',
-            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
+    try {
+        const response = await fetch(`/admin-product/${deletingProductId}`, {
+            method: 'DELETE',
+            headers: {
+                'Accept': 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
+            }
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+            console.error(result);
+            showToast(result.message || 'Gagal menghapus produk', 'error');
+            return;
         }
-    });
 
-    const result = await response.json();
-
-    if (!response.ok) {
-        console.error(result);
-        alert(result.message || 'Gagal menghapus produk');
-        return;
+        await renderProducts();
+        if (typeof renderStockLogs === 'function') {
+            await renderStockLogs();
+        }
+        if (typeof renderDashboard === 'function') {
+            await renderDashboard();
+        }
+        closeDeleteProductModal();
+        showToast(result.message || 'Produk berhasil dihapus', 'success');
+    } catch (error) {
+        console.error(error);
+        showToast('Gagal menghapus produk, periksa koneksi', 'error');
     }
-
-    await renderProducts();
-    if (typeof renderStockLogs === 'function') {
-        await renderStockLogs();
-    }
-    if (typeof renderDashboard === 'function') {
-        await renderDashboard();
-    }
-    closeDeleteProductModal();
 }
 
 async function handleLogout(event) {

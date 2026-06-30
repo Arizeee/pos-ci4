@@ -131,5 +131,5 @@
 </div>
 
 <script src="/assets/js/admin.js"></script>
-
+<script src="<?= base_url('assets/js/toast.js') ?>"></script>
 <?= $this->endSection() ?>
